@@ -28,27 +28,37 @@ def load_api_key():
 
 
 def fetch_cost_report(start_dt: datetime, end_dt: datetime, api_key: str) -> dict:
-    """Fetch cost report from Anthropic API."""
-    # API requires UTC day boundaries and at least 2 days span
+    """Fetch cost report from Anthropic API, following pagination."""
     start_str = start_dt.strftime("%Y-%m-%dT00:00:00Z")
     end_str = end_dt.strftime("%Y-%m-%dT00:00:00Z")
 
-    url = f"https://api.anthropic.com/v1/organizations/cost_report?starting_at={start_str}&ending_at={end_str}"
+    base_url = f"https://api.anthropic.com/v1/organizations/cost_report?starting_at={start_str}&ending_at={end_str}"
+    all_data = []
+    url = base_url
 
-    req = Request(url)
-    req.add_header("anthropic-version", "2023-06-01")
-    req.add_header("x-api-key", api_key)
+    while True:
+        req = Request(url)
+        req.add_header("anthropic-version", "2023-06-01")
+        req.add_header("x-api-key", api_key)
 
-    try:
-        with urlopen(req) as response:
-            return json.loads(response.read().decode())
-    except HTTPError as e:
-        error_body = e.read().decode()
-        print(f"API Error ({e.code}): {error_body}", file=sys.stderr)
-        sys.exit(1)
-    except URLError as e:
-        print(f"Network Error: {e.reason}", file=sys.stderr)
-        sys.exit(1)
+        try:
+            with urlopen(req) as response:
+                page = json.loads(response.read().decode())
+        except HTTPError as e:
+            error_body = e.read().decode()
+            print(f"API Error ({e.code}): {error_body}", file=sys.stderr)
+            sys.exit(1)
+        except URLError as e:
+            print(f"Network Error: {e.reason}", file=sys.stderr)
+            sys.exit(1)
+
+        all_data.extend(page.get("data", []))
+
+        if not page.get("has_more"):
+            break
+        url = base_url + "&page=" + page["next_page"]
+
+    return {"data": all_data}
 
 
 MONTHS = {
